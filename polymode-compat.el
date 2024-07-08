@@ -44,30 +44,31 @@
 ;;; emacs 25 compat
 
 (unless (fboundp 'assoc-delete-all)
-
-  (defun assoc-delete-all (key alist &optional test)
+  (defalias 'assoc-delete-all
+    (lambda (key alist &optional test)
     "Delete from ALIST all elements whose car is KEY.
 Compare keys with TEST.  Defaults to `equal'.
 Return the modified alist.
 Elements of ALIST that are not conses are ignored."
     (unless test (setq test #'equal))
     (while (and (consp (car alist))
-	            (funcall test (caar alist) key))
+                (funcall test (caar alist) key))
       (setq alist (cdr alist)))
     (let ((tail alist) tail-cdr)
       (while (setq tail-cdr (cdr tail))
         (if (and (consp (car tail-cdr))
-	             (funcall test (caar tail-cdr) key))
-	        (setcdr tail (cdr tail-cdr))
-	      (setq tail tail-cdr))))
-    alist)
+                 (funcall test (caar tail-cdr) key))
+            (setcdr tail (cdr tail-cdr))
+          (setq tail tail-cdr))))
+    alist)))
 
-  (defun assq-delete-all (key alist)
+(unless (fboundp 'assq-delete-all)
+  (defalias 'assq-delete-all
+    (lambda (key alist)
     "Delete from ALIST all elements whose car is `eq' to KEY.
 Return the modified alist.
 Elements of ALIST that are not conses are ignored."
-    (assoc-delete-all key alist #'eq)))
-
+    (assoc-delete-all key alist #'eq))))
 
 
 ;;; Various Wrappers for Around Advice
@@ -215,6 +216,7 @@ are passed to ORIG-FUN."
 ;; REPLACE:
 ;;   before-change:(obeg,oend)=(50,56)
 ;;   lsp-on-change:(nbeg,nend,olen)=(50,60,6)
+(defvar-local pm--lsp-before-change-end-position nil)
 
 (defun pm--lsp-buffer-content-document-content-change-event (beg end len)
   "Make a TextDocumentContentChangeEvent body for BEG to END, of length LEN."
@@ -228,7 +230,6 @@ are passed to ORIG-FUN."
           (pm--lsp-change-event beg end-pos text))
       (pm--lsp-full-change-event))))
 
-(defvar-local pm--lsp-before-change-end-position nil)
 (defun pm--lsp-position (pos)
   (save-restriction
     (widen)
@@ -265,8 +266,7 @@ are passed to ORIG-FUN."
           (pm-map-over-modes
            (lambda (sbeg send)
              (let ((beg1 (max sbeg beg))
-                   (end1 (min send end))
-                   (rem))
+                   (end1 (min send end)))
                (if (eq cmode major-mode)
                    (progn
                      (when (eq sbeg beg1)
@@ -286,7 +286,7 @@ are passed to ORIG-FUN."
                      (forward-line 1))
                    (setq line-acc (list (make-string (- end1 (point)) ? )))))))
            beg end-eol)
-          (apply #'concat (reverse acc)))))))
+          (apply #'concat (nreverse acc)))))))
 
 ;; We cannot compute original change location when modifications are complex
 ;; (aka multiple changes are combined). In those cases we send an entire
