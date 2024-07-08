@@ -488,7 +488,7 @@ TAIL-BEG TAIL-END).")
 Function used for `indent-region-function'."
   ;; (message "(pm-indent-region %d %d)" beg end)
   ;; cannot use pm-map-over-spans here because of the buffer modifications
-  (let ((inhibit-point-motion-hooks t)
+  (let ((cursor-sensor-inhibit t)
         (end (copy-marker end)))
     (save-excursion
       (while (< beg end)
