@@ -1930,13 +1930,22 @@ Return FALLBACK if non-nil, otherwise the value of
                       name)))
             (mname (if (string-match-p "-mode$" str)
                        str
-                     (concat str "-mode"))))
+                     (concat str "-mode")))
+            (mname-ts (if (string-match-p "-mode$" str)
+                          str
+                        (concat str "-ts-mode"))))
        (or
         ;; direct search
+        (let ((mode (intern mname-ts)))
+          (when (fboundp mode)
+            mode))
         (let ((mode (intern mname)))
           (when (fboundp mode)
             mode))
         ;; downcase
+        (let ((mode (intern (downcase mname-ts))))
+          (when (fboundp mode)
+            mode))
         (let ((mode (intern (downcase mname))))
           (when (fboundp mode)
             mode))
