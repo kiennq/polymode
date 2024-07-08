@@ -186,7 +186,7 @@ inner chunk (such as in markdown mode), the detected symbol might
 not correspond to the desired mode. This alist maps discovered
 symbols into desired modes. For example
 
-  (add-to-list 'polymode-mode-name-aliases '(julia . ess-julia))
+  (add-to-list \\='polymode-mode-name-aliases \\='(julia . ess-julia))
 
 will cause installation of `ess-julia-mode' in markdown ```julia chunks."
   :group 'polymode
@@ -1198,7 +1198,6 @@ spans. Two adjacent spans might have same major mode, thus
       (widen)
       (let* ((hostmode (eieio-oref pm/polymode '-hostmode))
              (pos beg)
-             (ttype 'dummy)
              (span (pm-innermost-span beg))
              (nspan span)
              (ttype (pm-true-span-type span))
@@ -1441,6 +1440,9 @@ are triggered if present."
   "Before-change functions to run in all other buffers.")
 (defvar polymode-run-these-after-change-functions-in-other-buffers nil
   "After-change functions to run in all other buffers.")
+
+(defvar pm--lsp-before-change-end-position)
+(declare-function pm--lsp-position "polymode-compat")
 
 (defun polymode-before-change (beg end)
   "Polymode before-change fixes.
