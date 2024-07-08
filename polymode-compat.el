@@ -44,30 +44,31 @@
 ;;; emacs 25 compat
 
 (unless (fboundp 'assoc-delete-all)
-
-  (defun assoc-delete-all (key alist &optional test)
+  (defalias 'assoc-delete-all
+    (lambda (key alist &optional test)
     "Delete from ALIST all elements whose car is KEY.
 Compare keys with TEST.  Defaults to `equal'.
 Return the modified alist.
 Elements of ALIST that are not conses are ignored."
     (unless test (setq test #'equal))
     (while (and (consp (car alist))
-	            (funcall test (caar alist) key))
+                (funcall test (caar alist) key))
       (setq alist (cdr alist)))
     (let ((tail alist) tail-cdr)
       (while (setq tail-cdr (cdr tail))
         (if (and (consp (car tail-cdr))
-	             (funcall test (caar tail-cdr) key))
-	        (setcdr tail (cdr tail-cdr))
-	      (setq tail tail-cdr))))
-    alist)
+                 (funcall test (caar tail-cdr) key))
+            (setcdr tail (cdr tail-cdr))
+          (setq tail tail-cdr))))
+    alist)))
 
-  (defun assq-delete-all (key alist)
+(unless (fboundp 'assq-delete-all)
+  (defalias 'assq-delete-all
+    (lambda (key alist)
     "Delete from ALIST all elements whose car is `eq' to KEY.
 Return the modified alist.
 Elements of ALIST that are not conses are ignored."
-    (assoc-delete-all key alist #'eq)))
-
+    (assoc-delete-all key alist #'eq))))
 
 
 ;;; Various Wrappers for Around Advice
@@ -285,7 +286,7 @@ preserving locations arriving from LSP intact."
                      (forward-line 1))
                    (setq line-acc (list (make-string (- end1 (point)) ? )))))))
            beg end-eol)
-          (apply #'concat (reverse acc)))))))
+          (apply #'concat (nreverse acc)))))))
 
 ;; We cannot compute original change location when modifications are complex
 ;; (aka multiple changes are combined). In those cases we send an entire
