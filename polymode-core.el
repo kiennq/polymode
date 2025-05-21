@@ -1936,34 +1936,35 @@ Return FALLBACK if non-nil, otherwise the value of
             (mname-ts (if (string-match-p "-mode$" str)
                           str
                         (concat str "-ts-mode"))))
-       (or
-        ;; direct search
-        (let ((mode (intern mname-ts)))
-          (when (fboundp mode)
-            mode))
-        (let ((mode (intern mname)))
-          (when (fboundp mode)
-            mode))
-        ;; downcase
-        (let ((mode (intern (downcase mname-ts))))
-          (when (fboundp mode)
-            mode))
-        (let ((mode (intern (downcase mname))))
-          (when (fboundp mode)
-            mode))
-        ;; auto-mode alist
-        (let ((dummy-file (concat "a." str)))
-          (cl-loop for (k . v) in auto-mode-alist
-                   if (and (string-match-p k dummy-file)
-                           (not (string-match-p "^poly-" (symbol-name v))))
-                   return v))
-        (when (or (eq polymode-default-inner-mode 'host)
-                  (fboundp polymode-default-inner-mode))
-          polymode-default-inner-mode)
-        (when (or (eq fallback 'host)
-                  (fboundp fallback))
-          fallback)
-        'poly-fallback-mode))))))
+       (major-mode-remap
+        (or
+         ;; direct search
+         (let ((mode (intern mname)))
+           (when (fboundp mode)
+             mode))
+         (let ((mode (intern mname-ts)))
+           (when (fboundp mode)
+             mode))
+         ;; downcase
+         (let ((mode (intern (downcase mname))))
+           (when (fboundp mode)
+             mode))
+         (let ((mode (intern (downcase mname-ts))))
+           (when (fboundp mode)
+             mode))
+         ;; auto-mode alist
+         (let ((dummy-file (concat "a." str)))
+           (cl-loop for (k . v) in auto-mode-alist
+                    if (and (string-match-p k dummy-file)
+                            (not (string-match-p "^poly-" (symbol-name v))))
+                    return v))
+         (when (or (eq polymode-default-inner-mode 'host)
+                   (fboundp polymode-default-inner-mode))
+           polymode-default-inner-mode)
+         (when (or (eq fallback 'host)
+                   (fboundp fallback))
+           fallback)
+         'poly-fallback-mode)))))))
 
 (defun pm--oref-with-parents (object slot)
   "Merge slots SLOT from the OBJECT and all its parent instances."

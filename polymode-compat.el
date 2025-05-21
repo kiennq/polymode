@@ -70,6 +70,15 @@ Return the modified alist.
 Elements of ALIST that are not conses are ignored."
     (assoc-delete-all key alist #'eq))))
 
+;;; emacs 30
+(unless (fboundp 'major-mode-remap)
+  (defalias 'major-mode-remap
+    (lambda (mode)
+      "Return the function to use to enable MODE."
+      (or (cdr (or (assq mode major-mode-remap-alist)
+                   (assq mode major-mode-remap-defaults)))
+          mode))))
+
 
 ;;; Various Wrappers for Around Advice
 
