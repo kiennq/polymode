@@ -75,7 +75,12 @@
 (defvar poly-lock-allow-fontification t)
 (defvar poly-lock-allow-background-adjustment t)
 (defvar poly-lock-fontification-in-progress nil)
-(defvar poly-lock-defer-after-change t)
+(defvar poly-lock-defer-after-change t
+  "When non-nil, defer after-change fontification via timer.
+This significantly improves performance for rapid successive edits.")
+(defvar poly-lock-defer-timer-delay 0.1
+  "Delay in seconds before deferred fontification runs.
+Larger values improve performance during rapid typing but delay visual feedback.")
 (defvar-local poly-lock-mode nil)
 
 (eval-and-compile
@@ -159,8 +164,9 @@ switched on."
     (remove-hook 'fontification-functions #'poly-lock-function t))
   (current-buffer))
 
-(defvar poly-lock-chunk-size 2500
-  "Poly-lock fontifies chunks of at most this many characters at a time.")
+(defvar poly-lock-chunk-size 5000
+  "Poly-lock fontifies chunks of at most this many characters at a time.
+Larger values improve performance for big files but may cause brief UI freezes.")
 
 (defun poly-lock-function (start)
   "The only function in `fontification-functions' in polymode buffers.
@@ -170,11 +176,13 @@ scope as `jit-lock-function'."
   (unless pm-initialization-in-progress
     (if (and poly-lock-mode (not memory-full))
         (unless (input-pending-p)
-          (let ((end (min (or (text-property-any start (point-max) 'fontified t)
-                              (point-max))
-                          (+ start poly-lock-chunk-size))))
-            (when (< start end)
-              (poly-lock-fontify-now start end))))
+          ;; Optimization: check if already fontified before computing end
+          (unless (get-text-property start 'fontified)
+            (let ((end (min (or (text-property-any start (point-max) 'fontified t)
+                                (point-max))
+                            (+ start poly-lock-chunk-size))))
+              (when (< start end)
+                (poly-lock-fontify-now start end)))))
       (with-buffer-prepared-for-poly-lock
        (put-text-property start (point-max) 'fontified t)))))
 
@@ -506,19 +514,19 @@ OLD-LEN are as in `after-change-functions'. When
       ;; FIXME: Instead of local timer, make a global one iterating over
       ;; relevant buffers
       (cancel-timer poly-lock--timer))
-    (if poly-lock-defer-after-change
-        (progn
-          (with-silent-modifications
-            ;; don't re-fontify before we extend
-            (put-text-property beg end 'fontified t)
-            (setq poly-lock--beg-change (min beg end poly-lock--beg-change)
-                  poly-lock--end-change (max beg end poly-lock--end-change))
-            ;; between this call and deferred extension pm-inner-span can be
-            ;; called, so we cache a few :pm-span properties around beg/end
-            (poly-lock--cache-pm-span-property beg end))
-          (setq-local poly-lock--timer
-                      (run-at-time 0.05 nil #'poly-lock--after-change-internal
-                                   (current-buffer) old-len)))
+        (if poly-lock-defer-after-change
+            (progn
+              (with-silent-modifications
+                ;; don't re-fontify before we extend
+                (put-text-property beg end 'fontified t)
+                (setq poly-lock--beg-change (min beg end poly-lock--beg-change)
+                      poly-lock--end-change (max beg end poly-lock--end-change))
+                ;; between this call and deferred extension pm-inner-span can be
+                ;; called, so we cache a few :pm-span properties around beg/end
+                (poly-lock--cache-pm-span-property beg end))
+              (setq-local poly-lock--timer
+                          (run-at-time poly-lock-defer-timer-delay nil #'poly-lock--after-change-internal
+                                       (current-buffer) old-len)))
       (setq poly-lock--beg-change beg
             poly-lock--end-change end)
       (poly-lock--after-change-internal (current-buffer) old-len))))
