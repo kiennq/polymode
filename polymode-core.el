@@ -86,7 +86,7 @@
     (eieio-object-name-string obj)))
 
 ;; avoids appending random numbers to buffer name when multiple windows are involved
-(defun pm--buffer-hiddenp ()
+(defsubst pm--buffer-hiddenp ()
   "Check whether the Emacs buffer is hidden."
   (= ?\  (string-to-char (buffer-name))))
 
@@ -476,9 +476,14 @@ the front)."
 
 (defun pm--intersect-spans (thespan span)
   ;; ASSUMPTION: first thespan should be of the form (nil MIN MAX HOSTMODE)
+  ;; Optimization: early exit if span is nil
   (when span
     (let ((allow-nested (eieio-oref (nth 3 span) 'allow-nested))
-          (is-host (null (car span))))
+          (is-host (null (car span)))
+          (span-beg (nth 1 span))
+          (span-end (nth 2 span))
+          (thespan-beg (nth 1 thespan))
+          (thespan-end (nth 2 thespan)))
       (cond
        ;; 1. nil means host and it can be an intersection of spans returned by
        ;; two neighboring inner chunkmodes. When `allow-nested` is 'always the
@@ -492,21 +497,21 @@ the front)."
             ;;   c) host-like span [span ... [thespan ..|..] ]
             (setq thespan
                   (list (car thespan)
-                        (max (nth 1 span) (nth 1 thespan))
-                        (min (nth 2 span) (nth 2 thespan))
+                        (max span-beg thespan-beg)
+                        (min span-end thespan-end)
                         (nth 3 thespan)))
           ;; 2) host thespan
           ;;    a) hosts span [thespan ...] ..|.. [span ..]
           ;;    b) host-like span [span ..|.. [thespan ...] ..]
           (setq thespan
                 (list (car span)
-                      (max (nth 1 span) (nth 1 thespan))
-                      (min (nth 2 span) (nth 2 thespan))
+                      (max span-beg thespan-beg)
+                      (min span-end thespan-end)
                       ;; first host span has precedence for clarity
                       (nth 3 (if is-host thespan span))))))
        ;; 2. Inner span
-       ((and (>= (nth 1 span) (nth 1 thespan))
-             (<= (nth 2 span) (nth 2 thespan)))
+       ((and (>= span-beg thespan-beg)
+             (<= span-end thespan-end))
         ;; Accepted only nested spans. In case of crossing (incorrect spans),
         ;; first span wins.
         (when (or (null (car thespan))
@@ -532,13 +537,21 @@ the front)."
          (end (point-max))
          (pos (or pos (point)))
          (hostmode (oref config -hostmode))
-         (chunkmodes (cons hostmode (oref config -innermodes)))
+         (innermodes (oref config -innermodes))
          (thespan (list nil start end hostmode)))
-    (dolist (cm chunkmodes)
-      ;; Optimization opportunity: this searches till the end of buffer but the
-      ;; outermost pm-get-span caller has computed a few spans already so we can
-      ;; pass limits or narrow to pre-computed span.
-      (setq thespan (pm--intersect-spans thespan (pm-get-span cm pos))))
+    ;; Optimization: only iterate innermodes if there are any
+    (when innermodes
+      (dolist (cm innermodes)
+        ;; Optimization opportunity: this searches till the end of buffer but the
+        ;; outermost pm-get-span caller has computed a few spans already so we can
+        ;; pass limits or narrow to pre-computed span.
+        (let ((span (pm-get-span cm pos)))
+          (when span
+            (setq thespan (pm--intersect-spans thespan span))))))
+    ;; Check hostmode only if needed (usually nil)
+    (let ((hspan (pm-get-span hostmode pos)))
+      (when hspan
+        (setq thespan (pm--intersect-spans thespan hspan))))
 
     (unless (and (<= start end) (<= pos end) (>= pos start))
       (error "Bad polymode selection: span:%s pos:%s"
@@ -546,8 +559,8 @@ the front)."
     (pm-cache-span thespan)
     thespan))
 
-(defun pm--chop-span (span beg end)
-  ;; destructive!
+(defsubst pm--chop-span (span beg end)
+  "Destructively adjust SPAN boundaries to fit within BEG and END."
   (when (> beg (nth 1 span))
     (setcar (cdr span) beg))
   (when (< end (nth 2 span))
@@ -583,28 +596,31 @@ the front)."
 
 (defun pm--cached-span (&optional pos)
   ;; fixme: add basic miss statistics
+  ;; Optimized version: reduce redundant checks and early exit
   (unless pm-initialization-in-progress
-    (let* ((omin (point-min))
+    (let* ((pos (or pos (point)))
            (omax (point-max))
-           (pos (or pos (point)))
            (pos (if (= pos omax)
                     (max (point-min) (1- pos))
                   pos))
            (span (get-text-property pos :pm-span)))
       (when span
-        (save-restriction
-          (widen)
-          (let* ((beg (nth 1 span))
-                 (end (1- (nth 2 span))))
-            (when (and (< end (point-max)) ; buffer size might have changed
-                       (<= pos end)
-                       (<= beg pos)
-                       (eq span (get-text-property beg :pm-span))
-                       (eq span (get-text-property end :pm-span))
-                       (not (eq span (get-text-property (1+ end) :pm-span)))
-                       (or (= beg (point-min))
-                           (not (eq span (get-text-property (1- beg) :pm-span)))))
-              (pm--chop-span (copy-sequence span) omin omax))))))))
+        (let ((beg (nth 1 span))
+              (end (nth 2 span)))
+          ;; Quick bounds check first (most common failure case)
+          (when (and (<= beg pos)
+                     (< pos end))
+            (save-restriction
+              (widen)
+              (let ((end-1 (1- end)))
+                ;; Only do expensive property checks if bounds are valid
+                (when (and (< end-1 (point-max))  ; buffer size might have changed
+                           (eq span (get-text-property beg :pm-span))
+                           (eq span (get-text-property end-1 :pm-span))
+                           (not (eq span (get-text-property end :pm-span)))
+                           (or (= beg (point-min))
+                               (not (eq span (get-text-property (1- beg) :pm-span)))))
+                  (pm--chop-span (copy-sequence span) (point-min) omax))))))))))
 
 (define-obsolete-function-alias 'pm-get-innermost-span #'pm-innermost-span "2018-08")
 (defun pm-innermost-span (&optional pos no-cache)
@@ -622,11 +638,13 @@ defaults to point. Guarantied to return a non-empty span."
           (pm--cached-span pos))
         (pm--innermost-span pm/polymode pos))))
 
-(defun pm-span-to-range (span)
+(defsubst pm-span-to-range (span)
+  "Convert SPAN to a range cons (BEG . END)."
   (and span (cons (nth 1 span) (nth 2 span))))
 
 (define-obsolete-function-alias 'pm-get-innermost-range #'pm-innermost-range "2018-08")
-(defun pm-innermost-range (&optional pos no-cache)
+(defsubst pm-innermost-range (&optional pos no-cache)
+  "Return (BEG . END) range of innermost span at POS."
   (pm-span-to-range (pm-innermost-span pos no-cache)))
 
 (defun pm-fun-matcher (matcher)
@@ -1413,10 +1431,16 @@ during mapping is an undefined behavior."
       (setq count most-positive-fixnum))
     (let* ((nr 0)
            (pos (if backwardp end beg))
-           (*span* (pm-innermost-span pos no-cache)))
+           (*span* (pm-innermost-span pos no-cache))
+           ;; Optimization: cache span chunkmode to avoid repeated lookups
+           (last-chunkmode nil))
       (while *span*
         (setq nr (1+ nr))
-        (pm-select-buffer *span* visibly)
+        ;; Optimization: only switch buffer if chunkmode changed
+        (let ((cur-chunkmode (nth 3 *span*)))
+          (unless (eq cur-chunkmode last-chunkmode)
+            (pm-select-buffer *span* visibly)
+            (setq last-chunkmode cur-chunkmode)))
         ;; FUN might change buffer and invalidate our *span*. Should we care or
         ;; reserve pm-map-over-spans for "read-only" actions only? Does
         ;; after-change run immediately or after this function ends?
@@ -1595,6 +1619,12 @@ local `pre-command-hook' with very high priority."
       (error (message "error polymode-pre-command run other hooks: (%s) %s"
                       (point) (error-message-string err))))))
 
+;; Cache for post-command optimization: avoid buffer switch checks when point unchanged
+(defvar-local pm--last-post-command-pos nil
+  "Position at last post-command; used to skip redundant span lookups.")
+(defvar-local pm--last-post-command-buffer nil
+  "Buffer at last post-command; used to detect when switch is needed.")
+
 (defun polymode-post-command ()
   "Select the buffer relevant buffer and run post-commands in other buffers.
 Run all the `post-command-hooks' in the new buffer and those
@@ -1605,22 +1635,32 @@ appropriate. This function is placed into local
   (when (and pm-allow-post-command-hook
              polymode-mode
              pm/polymode)
-    (let ((cbuf (current-buffer)))
-      (condition-case err
-          (pm-switch-to-buffer)
-        (error (message "error in polymode-post-command: (pm-switch-to-buffer %s): %s"
-                        (point) (error-message-string err))))
-      (condition-case err
-          (if (eq cbuf (current-buffer))
-              ;; 1. same buffer, run hooks in other buffers
-              (when pm-allow-post-command-hook
-               (pm--run-hooks-in-other-buffers
-                polymode-run-these-post-commands-in-other-buffers
-                'post-command-hook))
-            ;; 2. Run all hooks in this (newly switched to) buffer
-            (run-hooks 'post-command-hook))
-        (error (message "error in polymode-post-command run other hooks: (%s) %s"
-                        (point) (error-message-string err)))))))
+    (let ((cbuf (current-buffer))
+          (pos (point)))
+      ;; Optimization: skip span lookup if point hasn't moved and we're in the same buffer
+      ;; This is a major win for large files since post-command runs on every keystroke
+      ;; Note: modifying commands like self-insert-command will naturally trigger
+      ;; recalculation because point moves after the insertion
+      (unless (and (eq pm--last-post-command-buffer cbuf)
+                   (eql pm--last-post-command-pos pos))
+        (condition-case err
+            (pm-switch-to-buffer)
+          (error (message "error in polymode-post-command: (pm-switch-to-buffer %s): %s"
+                          (point) (error-message-string err))))
+        (condition-case err
+            (if (eq cbuf (current-buffer))
+                ;; 1. same buffer, run hooks in other buffers
+                (when pm-allow-post-command-hook
+                  (pm--run-hooks-in-other-buffers
+                   polymode-run-these-post-commands-in-other-buffers
+                   'post-command-hook))
+              ;; 2. Run all hooks in this (newly switched to) buffer
+              (run-hooks 'post-command-hook))
+          (error (message "error in polymode-post-command run other hooks: (%s) %s"
+                          (point) (error-message-string err)))))
+      ;; Update cache
+      (setq pm--last-post-command-pos (point)
+            pm--last-post-command-buffer (current-buffer)))))
 
 (defvar-local pm--killed nil)
 (defun polymode-after-kill-fixes ()
